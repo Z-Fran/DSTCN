@@ -33,3 +33,13 @@ np.save(r'data/test_day.npy', all_data['test']['day'])
 np.save(r'data/test_hour.npy', all_data['test']['hour'])
 np.save(r'data/test_recent.npy', all_data['test']['recent'])
 np.save(r'data/test_target.npy', all_data['test']['target'])
+
+f=open('data/scaler.txt', 'w')
+s = {'mean': scaler.mean, 'std': scaler.std}
+f.write(str(s))
+f.close()
+
+print(all_data['train']['day'].shape)
+print(all_data['train']['hour'].shape)
+print(all_data['train']['recent'].shape)
+print(all_data['train']['target'].shape)
