@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import sys
-from torch.nn import BatchNorm2d, Conv1d, Conv2d, ModuleList, Parameter, LayerNorm, BatchNorm1d
+from torch.nn import BatchNorm2d, Conv1d, Conv2d, ModuleList, Parameter, LayerNorm, BatchNorm1d, MultiheadAttention
 import torch
 from torch.nn import Parameter as Param
 from torch_geometric.nn.conv import MessagePassing
@@ -235,12 +235,12 @@ class Block(nn.Module):
 
 
 class GRU(nn.Module):
-    def __init__(self,device):
+    def __init__(self,device,c_out):
         super(GRU, self).__init__()
         self.device=device
-        c_in=69
-        c_out=256
-        self.node_num=69
+        c_in=350
+        c_out=c_out
+        self.node_num=350
         self.gru = nn.GRU(c_in, c_out, batch_first=True)  # b*n,l,c
         self.c_out = c_out
         self.bn = BatchNorm2d(c_in, affine=False)
@@ -258,37 +258,38 @@ class GRU(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self, device,numT,edge_index,edge_attr):
+    def __init__(self,device,numT,edge_index,edge_attr,C,D):
         super(Model, self).__init__()
-        c_in=69
-        num_nodes=69
+        c_in=350
+        num_nodes=350
         self.device=device
         self.bn = BatchNorm2d(c_in, affine=False)
-        C = 256  # C是channel
-        D = 256  # D是hidden dimension
-        self.GRU=GRU(device)
+        # C = 128  # C是channel
+        # D = 128  # D是hidden dimension
+        self.GRU=GRU(device,C)
         self.with_vertical=True
-        self.with_horizontal=True
+        self.with_horizontal=False
         self.union = "cat"
 
         self.rnn_v=nn.LSTM(numT,D,num_layers=1,batch_first=True,bias=True,bidirectional=True)
         self.rnn_h = nn.LSTM(numT, D, num_layers=1, batch_first=True, bias=True, bidirectional=True)
 
-        self.fc = nn.Linear(4*D, D)
+        self.fc = nn.Linear(2*D, D)
 
         # self.f1 = nn.Linear(30,D)
         self.f2 = nn.Linear(D, numT)
         self.D=D
+        self.C=C
 
         #加入transformer
-        self.conv = nn.Conv2d(numT, 256, kernel_size=7, stride=2, padding=2, bias=False)
-        self.bn1 = nn.BatchNorm2d(256)
+        self.conv = nn.Conv2d(numT, C, kernel_size=7, stride=5, padding=2, bias=False)
+        self.bn1 = nn.BatchNorm2d(C)
         self.act1 = nn.ReLU(inplace=True)
         # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.trans_patch_conv = nn.Conv2d(256, 768, kernel_size=2, stride=2, padding=0)
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, 768))
+        self.trans_patch_conv = nn.Conv2d(C, C*3, kernel_size=2, stride=2, padding=0)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, C*3))
         # trans_block
-        embed_dim = 768
+        embed_dim = C*3
         num_heads = 6
         mlp_ratio = 4
         qkv_bias = True
@@ -299,19 +300,20 @@ class Model(nn.Module):
         self.trans_block = Block(
             dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=drop_path_rate)
+        patch_size = 5
+        self.unconv1 = nn.ConvTranspose2d(C*3, C, patch_size, patch_size)
         patch_size = 2
-        self.unconv1 = nn.ConvTranspose2d(768, 256, patch_size, patch_size)
-        self.unconv2 = nn.ConvTranspose2d(256, 256, patch_size, patch_size)
-        self.conv_shape = nn.Conv2d(256, 256, kernel_size=2, padding=1)
+        self.unconv2 = nn.ConvTranspose2d(C, C, patch_size, patch_size)
+        self.conv_shape = nn.Conv2d(C, C, kernel_size=3, padding=1)
         # self.fc_1 = nn.Linear(80, 256)
         self.mlpatt = nn.Linear(2 * D, D)
         #额外加的
         self.edge_index=edge_index
         self.edge_attr=edge_attr
         self.numT=numT
-        c_out = 69
-        self.node_num = 69
-        self.cheb_v = KStepRGCN(69,  # 80
+        c_out = 350
+        self.node_num = 350
+        self.cheb_v = KStepRGCN(350,  # 80
                                 c_out,  # 256
                                 num_relations=3,  # 3
                                 num_bases=3,  # 3
@@ -319,7 +321,7 @@ class Model(nn.Module):
                                 bias=False)
         self.gcn_v_fc=nn.Linear(numT, 2*D)
         self.mlp_v = nn.Linear(4 * D, 2*D)
-        self.cheb_h = KStepRGCN(69,  # 80
+        self.cheb_h = KStepRGCN(350,  # 80
                                 c_out,  # 256
                                 num_relations=3,  # 3
                                 num_bases=3,  # 3
@@ -328,30 +330,18 @@ class Model(nn.Module):
         self.gcn_h_fc = nn.Linear(numT, 2 * D)
         self.mlp_h = nn.Linear(4 * D, 2 * D)
 
-        self.fc_toweek = nn.Linear(numT*7, 768)
-        self.fc_tohour = nn.Linear(numT*24 , 768)
+        self.fc_toweek = nn.Linear(numT*7, C*3)
+        self.fc_tohour = nn.Linear(numT*24 , C*3)
         self.simformer_1 = nn.Linear(numT, D)
         self.norm2 = nn.LayerNorm(D)
 
 
 
-    def forward(self, x_f,external_toweek, external_tohour):
-        external_toweek=external_toweek.flatten(1)#
-
-        external_toweek = self.fc_toweek(F.relu(external_toweek))  #
-        B,E=external_toweek.shape
-        external_toweek = external_toweek.expand(289,B,E)  #
-        external_toweek=external_toweek.permute(1,0,2)#
-
-        external_tohour=external_tohour.flatten(1)
-        external_tohour = self.fc_tohour(F.relu(external_tohour))  #
-
-        external_tohour = external_tohour.expand(289,B,E)
-
-        external_tohour=external_tohour.permute(1,0,2)
+    def forward(self, x_f):
         x=x_f
         B,H,W,C=x.shape#
-
+        # import pdb
+        # pdb.set_trace()
         if self.with_vertical:
             # print('vvvv')
             v = x.permute(0, 2, 1, 3)
@@ -416,14 +406,14 @@ class Model(nn.Module):
         # print('76890')
         # print(x.shape)
         x_bilstm = self.fc(x)
-        # print(x_bilstm.shape)
+        # print(x_bilstm.shape) 350,650
         #在这里我感觉可以进行一下空间transformer
         x1 = x_f.permute(0, 3, 1, 2)
         x = self.act1(self.bn1(self.conv(x1)))
         x = self.trans_patch_conv(x).flatten(2).transpose(1, 2)
-        x_t = x+F.relu(external_toweek+external_tohour)
+        x_t = x
         x_t = self.trans_block(x_t)
-        x_t = x_t.view(-1, 17, 17, 768).permute(0, 3, 1, 2)
+        x_t = x_t.view(-1, 35, 65, self.C*3).permute(0, 3, 1, 2)
         x_t = self.unconv1(x_t)
         x_t = self.unconv2(x_t)
         x_t = self.conv_shape(x_t)
@@ -445,12 +435,12 @@ class Net_block(torch.nn.Module):
 
     def __init__(self,device,edge_index,edge_attr):
         super(Net_block, self).__init__()
-        self.bn = BatchNorm2d(69, affine=False)
-        self.submodule=Model(device,6,edge_index,edge_attr)
+        self.bn = BatchNorm2d(350, affine=False)
+        D=64
+        self.submodule=Model(device,3,edge_index,edge_attr,D,D)
         # self.DEVICE = DEVICE
         # self.to(DEVICE)
-        D=256
-        num_nodes=69
+        num_nodes=350
         self.conv1 = Conv2d(D, num_nodes, kernel_size=(1, 1), padding=(0, 0),
                             stride=(1, 1), bias=True)
         self.conv2 = Conv2d(D, num_nodes, kernel_size=(1, 1), padding=(0, 0),
@@ -465,29 +455,20 @@ class Net_block(torch.nn.Module):
         # 加载data数据
         x_w, x_d, x_r = x_list[0], x_list[1], x_list[
             2]
-        ext_w_toweek, ext_w_tohour,ext_d_toweek, ext_d_tohour,ext_r_toweek, ext_r_tohour= \
-            external_list[0], external_list[1],external_list[2], external_list[3],external_list[4], external_list[5]
+
         x_w = self.bn(x_w)
         x_d = self.bn(x_d)
         x_r = self.bn(x_r)
         x = torch.cat((x_w, x_d, x_r), -1)
 
-        ext_toweek=torch.cat((ext_w_toweek,ext_d_toweek,ext_r_toweek),1)#
-        ext_tohour=torch.cat((ext_w_tohour,ext_d_tohour,ext_r_tohour),1)#
-
-        y = self.submodule(x,ext_toweek, ext_tohour)
+        y = self.submodule(x)
         y1 = y[:, :, :, 0:1]
         y2 = y[:, :, :, 1:2]
         y3 = y[:, :, :, 2:3]
-        y4 = y[:, :, :, 3:6]
+        # y4 = y[:, :, :, 3:6]
 
         y1 = self.conv1(y1)
         y2 = self.conv2(y2)
         y3 = self.conv3(y3)
-        y4 = self.conv4(y4)
-
-
-        return y1+y2+y3+y4
-
-
-
+        # y4 = self.conv4(y4)
+        return y1+y2+y3
