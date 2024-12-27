@@ -23,21 +23,21 @@ from lib.utils_model_pre1 import *
 from lib.mydataset import MyDataset
 from model.model_pre1 import Net_block as model
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
-
+# torch.backends.cudnn.enabled = False
 parser = argparse.ArgumentParser()
-parser.add_argument('--device', type=str, default='cpu', help='')
+parser.add_argument('--device', type=str, default='cuda:0', help='')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during training [default: 16]')
 parser.add_argument('--decay', type=float, default=0.92, help='decay rate of learning rate ')
 FLAGS = parser.parse_args()
 decay = FLAGS.decay
-num_nodes = 350
-epochs = 50
+num_nodes = 50
+epochs = 200
 batch_size= FLAGS.batch_size
 points_per_5min = 1
 num_for_predict = 1
 num_of_days = 1
-num_of_hours = 1
-num_of_5min = 1
+num_of_hours = 3
+num_of_5min = 12
 
 merge = False
 model_name = 'BILSTM12'
@@ -49,7 +49,7 @@ device = torch.device(FLAGS.device)
 print('read matrix')
 # read matrix
 adj_mx_list=[]
-adj1 = './data/all_adj.pkl'
+adj1 = './data/array_50_100.pkl'
 adj_mx1 = load_graph_data_hz(adj1)
 print(adj_mx1)
 for i in range(len(adj_mx1)):
@@ -69,8 +69,8 @@ print(edge_index)
 print(edge_attr.shape)
 print(edge_index.shape)
 
-Metro_edge_matrix = np.load('./data/all_5min.npy')[:,:,:]# 8760，69，69
-print(Metro_edge_matrix.shape)
+# Metro_edge_matrix = np.load('./data/all_5min.npy')[:,:,:]# 8760，69，69
+# print(Metro_edge_matrix.shape)
 # Metro_week_matrix = np.load('./data/ext2018_week_Matrix.npy')  # [(45,56),[]]
 # Metro_hour_matrix = np.load('./data/ext2018_hour_Matrix.npy')  #
 Metro_week_matrix = None
@@ -166,8 +166,8 @@ if __name__ == "__main__":
             with autocast():
                 output = net([train_d, train_h, train_r],
                             [])
-                output = scaler_torch.inverse_transform(output)
-                train_t = scaler_torch.inverse_transform(train_t)
+                # output = scaler_torch.inverse_transform(output)
+                # train_t = scaler_torch.inverse_transform(train_t)
 
 
                 loss = loss_function(output, train_t)
@@ -186,7 +186,7 @@ if __name__ == "__main__":
         scheduler.step()
         end_time_train = time()
         train_l = np.mean(train_l)
-        print('epoch step: %s, training loss: %.2f, time: %.2fs'
+        print('epoch step: %s, training loss: %.5f, time: %.5fs'
               % (epoch, train_l, end_time_train - start_time_train))
         train_time.append(end_time_train - start_time_train)
 

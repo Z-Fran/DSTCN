@@ -238,9 +238,9 @@ class GRU(nn.Module):
     def __init__(self,device,c_out):
         super(GRU, self).__init__()
         self.device=device
-        c_in=350
+        c_in=50
         c_out=c_out
-        self.node_num=350
+        self.node_num=50
         self.gru = nn.GRU(c_in, c_out, batch_first=True)  # b*n,l,c
         self.c_out = c_out
         self.bn = BatchNorm2d(c_in, affine=False)
@@ -260,21 +260,20 @@ class GRU(nn.Module):
 class Model(nn.Module):
     def __init__(self,device,numT,edge_index,edge_attr,C,D):
         super(Model, self).__init__()
-        c_in=350
-        num_nodes=350
+        c_in=50
         self.device=device
         self.bn = BatchNorm2d(c_in, affine=False)
         # C = 128  # C是channel
         # D = 128  # D是hidden dimension
         self.GRU=GRU(device,C)
         self.with_vertical=True
-        self.with_horizontal=False
+        self.with_horizontal=True
         self.union = "cat"
 
-        self.rnn_v=nn.LSTM(numT,D,num_layers=1,batch_first=True,bias=True,bidirectional=True)
+        self.rnn_v= nn.LSTM(numT, D, num_layers=1, batch_first=True, bias=True, bidirectional=True)
         self.rnn_h = nn.LSTM(numT, D, num_layers=1, batch_first=True, bias=True, bidirectional=True)
 
-        self.fc = nn.Linear(2*D, D)
+        self.fc = nn.Linear(4*D, D)
 
         # self.f1 = nn.Linear(30,D)
         self.f2 = nn.Linear(D, numT)
@@ -282,7 +281,7 @@ class Model(nn.Module):
         self.C=C
 
         #加入transformer
-        self.conv = nn.Conv2d(numT, C, kernel_size=7, stride=5, padding=2, bias=False)
+        self.conv = nn.Conv2d(numT, C, kernel_size=7, stride=2, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(C)
         self.act1 = nn.ReLU(inplace=True)
         # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -300,20 +299,20 @@ class Model(nn.Module):
         self.trans_block = Block(
             dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=drop_path_rate)
-        patch_size = 5
+        patch_size = 2
         self.unconv1 = nn.ConvTranspose2d(C*3, C, patch_size, patch_size)
         patch_size = 2
         self.unconv2 = nn.ConvTranspose2d(C, C, patch_size, patch_size)
-        self.conv_shape = nn.Conv2d(C, C, kernel_size=3, padding=1)
+        self.conv_shape = nn.Conv2d(C, C, kernel_size=3, padding=(3,0))
         # self.fc_1 = nn.Linear(80, 256)
         self.mlpatt = nn.Linear(2 * D, D)
         #额外加的
         self.edge_index=edge_index
         self.edge_attr=edge_attr
         self.numT=numT
-        c_out = 350
-        self.node_num = 350
-        self.cheb_v = KStepRGCN(350,  # 80
+        c_out = 50
+        self.node_num = 50
+        self.cheb_v = KStepRGCN(c_in,  # 80
                                 c_out,  # 256
                                 num_relations=3,  # 3
                                 num_bases=3,  # 3
@@ -321,8 +320,8 @@ class Model(nn.Module):
                                 bias=False)
         self.gcn_v_fc=nn.Linear(numT, 2*D)
         self.mlp_v = nn.Linear(4 * D, 2*D)
-        self.cheb_h = KStepRGCN(350,  # 80
-                                c_out,  # 256
+        self.cheb_h = KStepRGCN(100,  # 80
+                                100,  # 256
                                 num_relations=3,  # 3
                                 num_bases=3,  # 3
                                 K=1,  # 1
@@ -382,10 +381,9 @@ class Model(nn.Module):
             need_concat_h = []
             for i in range(self.numT):  # 12
                 h_h = self.cheb_h(h1[:, :, i], edge_index=self.edge_index,edge_attr=self.edge_attr)
-
                 need_concat_h.append(h_h)
             gcn_h = torch.stack(need_concat_h, dim=-1)  #
-            gcn_h= gcn_h.reshape(B, H,W, -1)
+            gcn_h= gcn_h.reshape(B, H, W, -1)
             gcn_h = self.gcn_h_fc(gcn_h)
             # 融合双向lstm和gcn
             combine_h = torch.cat([h, gcn_h], dim=-1)
@@ -409,15 +407,19 @@ class Model(nn.Module):
         # print(x_bilstm.shape) 350,650
         #在这里我感觉可以进行一下空间transformer
         x1 = x_f.permute(0, 3, 1, 2)
+        print(x1.shape)
         x = self.act1(self.bn1(self.conv(x1)))
         x = self.trans_patch_conv(x).flatten(2).transpose(1, 2)
         x_t = x
         x_t = self.trans_block(x_t)
-        x_t = x_t.view(-1, 35, 65, self.C*3).permute(0, 3, 1, 2)
+        x_t = x_t.view(-1, 24, 50, self.C*3).permute(0, 3, 1, 2)
         x_t = self.unconv1(x_t)
         x_t = self.unconv2(x_t)
         x_t = self.conv_shape(x_t)
+        print(x_t.shape)
         x_t = x_t.permute(0, 2, 3, 1)
+        import pdb
+        pdb.set_trace()
         x_t = self.simformer_1(x_f) + x_t
         x_t = self.norm2(x_t)
         #融合双向lstm和全局transformer
@@ -435,12 +437,12 @@ class Net_block(torch.nn.Module):
 
     def __init__(self,device,edge_index,edge_attr):
         super(Net_block, self).__init__()
-        self.bn = BatchNorm2d(350, affine=False)
-        D=64
-        self.submodule=Model(device,3,edge_index,edge_attr,D,D)
+        self.bn = BatchNorm2d(50, affine=False)
+        D=128
+        self.submodule=Model(device,16,edge_index,edge_attr,D,D)
         # self.DEVICE = DEVICE
         # self.to(DEVICE)
-        num_nodes=350
+        num_nodes=50
         self.conv1 = Conv2d(D, num_nodes, kernel_size=(1, 1), padding=(0, 0),
                             stride=(1, 1), bias=True)
         self.conv2 = Conv2d(D, num_nodes, kernel_size=(1, 1), padding=(0, 0),

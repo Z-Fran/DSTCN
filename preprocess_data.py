@@ -3,11 +3,11 @@ from lib.utils_model_pre1 import *
 
 num_for_predict = 1
 num_of_days = 1
-num_of_hours = 1
-num_of_5min = 1
+num_of_hours = 3
+num_of_5min = 12
 merge = False
 
-Metro_edge_matrix = np.load('./data/all_5min.npy')[:,:,:]# 8760，69，69
+Metro_edge_matrix = np.load('./data/all_5min_50_100.npy')[:,:,:]# 8760，69，69
 # Metro_week_matrix = np.load('./data/ext2018_week_Matrix.npy')  # [(45,56),[]]
 # Metro_hour_matrix = np.load('./data/ext2018_hour_Matrix.npy')  #
 Metro_week_matrix = None
