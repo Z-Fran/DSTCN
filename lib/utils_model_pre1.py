@@ -117,8 +117,8 @@ def evaluate(net, test_loader, true_value, device, epoch,scaler):
     net.eval()
     with torch.no_grad():
         prediction= predict(net, test_loader,device)
-        prediction = scaler_torch.inverse_transform(prediction)
-        true_value = scaler_torch.inverse_transform(true_value)
+        # prediction = scaler_torch.inverse_transform(prediction)
+        # true_value = scaler_torch.inverse_transform(true_value)
 
 
         mae = get_MAE(prediction, true_value)
@@ -201,12 +201,12 @@ def compute_val_loss(net, val_loader,true_val_value, loss_function,device, epoch
     net.eval()
     with torch.no_grad():
         prediction = predict(net, val_loader, device)
-        prediction = scaler.inverse_transform(prediction)
-        true_value = scaler.inverse_transform(true_val_value)
+        # prediction = scaler.inverse_transform(prediction)
+        # true_value = scaler.inverse_transform(true_val_value)
 
 
-        mae = get_MAE(prediction, true_value)
-        rmse = get_RMSE(prediction, true_value)
+        mae = get_MAE(prediction, true_val_value)
+        rmse = get_RMSE(prediction, true_val_value)
         print('val Average Horizon, MAE: %.6f, RMSE: %.6f' % (
             mae, rmse))
 
@@ -433,8 +433,8 @@ def read_and_generate_dataset(Metro_edge_matrix,Metro_week_matrix,Metro_hour_mat
         val_hour), scaler.transform(test_hour)
     train_recent_norm, val_recent_norm, test_recent_norm = scaler.transform(train_min), scaler.transform(
         val_min), scaler.transform(test_min)
-    train_target, val_target, test_target = scaler.transform(train_target), scaler.transform(
-        val_target), scaler.transform(test_target)
+    # train_target, val_target, test_target = scaler.transform(train_target), scaler.transform(
+    #     val_target), scaler.transform(test_target)
 
 
 
